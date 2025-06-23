@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import abc
 import gc
 import importlib
 import importlib.util
@@ -19,6 +20,7 @@ import logging
 import os
 import threading
 import uuid
+from abc import abstractmethod
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import Dict, List, Literal, Optional, Tuple
@@ -142,17 +144,18 @@ class _ModelWrapper(nn.Module):
             return getattr(self.model, attr)
 
 
-class RerankModel:
+# 抽象基类
+class RerankModel(abc.ABC):
     def __init__(
         self,
-        model_spec: RerankModelSpec,
         model_uid: str,
-        model_path: Optional[str] = None,
+        model_path: str,
+        model_spec: RerankModelSpec,
         device: Optional[str] = None,
         use_fp16: bool = False,
         model_config: Optional[Dict] = None,
+        **kwargs,
     ):
-        self._model_spec = model_spec
         self._model_uid = model_uid
         self._model_path = model_path
         self._device = device
@@ -160,37 +163,32 @@ class RerankModel:
         self._use_fp16 = use_fp16
         self._model = None
         self._counter = 0
-        if model_spec.type == "unknown":
-            model_spec.type = self._auto_detect_type(model_path)
+        self._model_spec = model_spec
+        self._model_name = self._model_spec.model_name
+        self._kwargs = kwargs
 
-    @staticmethod
-    def _get_tokenizer(model_path):
-        from transformers import AutoTokenizer
+    @classmethod
+    @abstractmethod
+    def check_lib(cls) -> bool:
+        """检查所需的库是否已安装"""
+        pass
 
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        return tokenizer
+    @classmethod
+    @abstractmethod
+    def match_json(cls, model_spec: RerankModelSpec) -> bool:
+        """检查模型规格是否匹配此引擎"""
+        pass
 
-    @staticmethod
-    def _auto_detect_type(model_path):
-        """This method may not be stable due to the fact that the tokenizer name may be changed.
-        Therefore, we only use this method for unknown model types."""
+    @classmethod
+    def match(cls, model_spec: RerankModelSpec):
+        """检查模型规格是否可以匹配"""
+        if not cls.check_lib():
+            return False
+        return cls.match_json(model_spec)
 
-        type_mapper = {
-            "LlamaTokenizerFast": "LLM-based layerwise",
-            "GemmaTokenizerFast": "LLM-based",
-            "XLMRobertaTokenizerFast": "normal",
-        }
-
-        tokenizer = RerankModel._get_tokenizer(model_path)
-        rerank_type = type_mapper.get(type(tokenizer).__name__)
-        if rerank_type is None:
-            logger.warning(
-                f"Can't determine the rerank type based on the tokenizer {tokenizer}, use normal type by default."
-            )
-            return "normal"
-        return rerank_type
-
+    @abstractmethod
     def load(self):
+        pass
         logger.info("Loading rerank model: %s", self._model_path)
         flash_attn_installed = importlib.util.find_spec("flash_attn") is not None
         if (
@@ -336,6 +334,7 @@ class RerankModel:
         return_len: Optional[bool],
         **kwargs,
     ) -> Rerank:
+        pass
         assert self._model is not None
         if max_chunks_per_doc is not None:
             raise ValueError("rerank hasn't support `max_chunks_per_doc` parameter.")
@@ -464,47 +463,29 @@ def create_rerank_model_instance(
     devices: List[str],
     model_uid: str,
     model_name: str,
+    model_engine: Optional[str] = None,
     download_hub: Optional[
         Literal["huggingface", "modelscope", "openmind_hub", "csghub"]
     ] = None,
     model_path: Optional[str] = None,
     **kwargs,
 ) -> Tuple[RerankModel, RerankModelDescription]:
-    from ..utils import download_from_modelscope
-    from . import BUILTIN_RERANK_MODELS, MODELSCOPE_RERANK_MODELS
-    from .custom import get_user_defined_reranks
+    from .rerank_family import match_rerank, check_engine_by_model_name_and_engine
 
-    model_spec = None
-    for ud_spec in get_user_defined_reranks():
-        if ud_spec.model_name == model_name:
-            model_spec = ud_spec
-            break
-
-    if model_spec is None:
-        if download_hub == "huggingface" and model_name in BUILTIN_RERANK_MODELS:
-            logger.debug(f"Rerank model {model_name} found in Huggingface.")
-            model_spec = BUILTIN_RERANK_MODELS[model_name]
-        elif download_hub == "modelscope" and model_name in MODELSCOPE_RERANK_MODELS:
-            logger.debug(f"Rerank model {model_name} found in ModelScope.")
-            model_spec = MODELSCOPE_RERANK_MODELS[model_name]
-        elif download_from_modelscope() and model_name in MODELSCOPE_RERANK_MODELS:
-            logger.debug(f"Rerank model {model_name} found in ModelScope.")
-            model_spec = MODELSCOPE_RERANK_MODELS[model_name]
-        elif model_name in BUILTIN_RERANK_MODELS:
-            logger.debug(f"Rerank model {model_name} found in Huggingface.")
-            model_spec = BUILTIN_RERANK_MODELS[model_name]
-        else:
-            raise ValueError(
-                f"Rerank model {model_name} not found, available"
-                f"Huggingface: {BUILTIN_RERANK_MODELS.keys()}"
-                f"ModelScope: {MODELSCOPE_RERANK_MODELS.keys()}"
-            )
-    if not model_path:
+    model_spec = match_rerank(model_name, download_hub)
+    if model_path is None:
         model_path = cache(model_spec)
-    use_fp16 = kwargs.pop("use_fp16", False)
-    model = RerankModel(
-        model_spec, model_uid, model_path, use_fp16=use_fp16, model_config=kwargs
+
+    if model_engine is None:
+        # 默认使用 sentence_transformers 引擎
+        model_engine = "sentence_transformers"
+
+    rerank_cls = check_engine_by_model_name_and_engine(
+        model_name,
+        model_engine,
     )
+    devices = devices or ["cpu"]
+    model = rerank_cls(model_uid, model_path, model_spec, **kwargs)
     model_description = RerankModelDescription(
         subpool_addr, devices, model_spec, model_path=model_path
     )

@@ -85,3 +85,71 @@ def load_model_family_from_json(json_filename, target_families):
     for model_name, model_spec in target_families.items():
         MODEL_NAME_TO_REVISION[model_name].append(model_spec.model_revision)
     del _model_spec_json
+
+
+# 导入各个引擎
+from .sentence_transformers.core import SentenceTransformerRerankModel
+from .transformers.core import TransformersRerankModel
+from .flag.core import FlagRerankModel
+
+# 注册引擎
+from .rerank_family import (
+    SENTENCE_TRANSFORMER_CLASSES,
+    TRANSFORMERS_CLASSES,
+    FLAG_CLASSES,
+    RERANK_ENGINES,
+)
+
+SENTENCE_TRANSFORMER_CLASSES.append(SentenceTransformerRerankModel)
+TRANSFORMERS_CLASSES.append(TransformersRerankModel)
+FLAG_CLASSES.append(FlagRerankModel)
+
+
+def generate_engine_config_by_model_name(model_spec):
+    """为模型生成引擎配置"""
+    model_name = model_spec.model_name
+
+    if model_name not in RERANK_ENGINES:
+        RERANK_ENGINES[model_name] = {}
+
+    # 检查各个引擎是否支持该模型
+    for engine_cls in SENTENCE_TRANSFORMER_CLASSES:
+        if engine_cls.match(model_spec):
+            if "sentence_transformers" not in RERANK_ENGINES[model_name]:
+                RERANK_ENGINES[model_name]["sentence_transformers"] = []
+            RERANK_ENGINES[model_name]["sentence_transformers"].append(
+                {
+                    "model_name": model_name,
+                    "rerank_class": engine_cls,
+                }
+            )
+
+    for engine_cls in TRANSFORMERS_CLASSES:
+        if engine_cls.match(model_spec):
+            if "transformers" not in RERANK_ENGINES[model_name]:
+                RERANK_ENGINES[model_name]["transformers"] = []
+            RERANK_ENGINES[model_name]["transformers"].append(
+                {
+                    "model_name": model_name,
+                    "rerank_class": engine_cls,
+                }
+            )
+
+    for engine_cls in FLAG_CLASSES:
+        if engine_cls.match(model_spec):
+            if "flag" not in RERANK_ENGINES[model_name]:
+                RERANK_ENGINES[model_name]["flag"] = []
+            RERANK_ENGINES[model_name]["flag"].append(
+                {
+                    "model_name": model_name,
+                    "rerank_class": engine_cls,
+                }
+            )
+
+
+# 为所有内置模型生成引擎配置
+for model_spec in BUILTIN_RERANK_MODELS.values():
+    generate_engine_config_by_model_name(model_spec)
+
+for model_spec in MODELSCOPE_RERANK_MODELS.values():
+    generate_engine_config_by_model_name(model_spec)
