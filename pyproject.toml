@@ -1,23 +1,37 @@
-[build-system]
-requires = [
-    "setuptools>=64; python_version<'3.12'",
-    "setuptools>=75; python_version>='3.12'"
+[project]
+name = "inference"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "xoscar",
+    "torch",
+    "gradio",
+    "pillow",
+    "click<8.2.0",
+    "tqdm>=4.27",
+    "tabulate",
+    "requests",
+    "aiohttp",
+    "pydantic",
+    "fastapi>=0.110.3",
+    "uvicorn",
+    "huggingface-hub>=0.19.4",
+    "typing_extensions",
+    "modelscope>=1.19.0",
+    "sse_starlette>=1.6.5", # ensure_bytes API break change: https://github.com/sysid/sse-starlette/issues/65,
+    "openai>=1.40.0", # For typing
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "aioprometheus[starlette]>=23.12.0",
+    "nvidia-ml-py",
+    "pynvml>=12",
+    "async-timeout",
+    "peft",
+    "timm",
+    "setproctitle",
+    "pytest>=8.4.1",
+    "tiktoken>=0.9.0",
+    "protobuf>=6.31.1",
 ]
-build-backend = "setuptools.build_meta"
-
-[tool.black]
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-| ^/xinference/(_version.py)
-| thirdparty
-)/
-'''
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-
-[tool.cibuildwheel]
-build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
-skip = "pp* *musllinux* *i686 cp36* cp39-win32 cp310-win32 cp311-win32 cp312-win32"
-manylinux-x86_64-image = "manylinux2014"

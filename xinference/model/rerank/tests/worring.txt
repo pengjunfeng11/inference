@@ -1,0 +1,171 @@
+=================================== FAILURES ===================================
+__________________________________ test_model __________________________________
+
+transformer_tokenizer = <[AttributeError('XLMRobertaTokenizerFast has no attribute added_tokens_decoder') raised in repr()] XLMRobertaTokenizerFast object at 0x12f626f30>
+from_tiktoken = True
+
+    def convert_slow_tokenizer(transformer_tokenizer, from_tiktoken=False) -> Tokenizer:
+        """
+        Utilities to convert a slow tokenizer instance in a fast tokenizer instance.
+    
+        Args:
+            transformer_tokenizer ([`~tokenization_utils_base.PreTrainedTokenizer`]):
+                Instance of a slow tokenizer to convert in the backend tokenizer for
+                [`~tokenization_utils_base.PreTrainedTokenizerFast`].
+           from_tiktoken (bool, optional): Whether to use the `tiktoken` library to convert the tokenizer instead of sentencepiece.
+                Defaults to False.
+    
+        Return:
+            A instance of [`~tokenizers.Tokenizer`] to be used as the backend tokenizer of a
+            [`~tokenization_utils_base.PreTrainedTokenizerFast`]
+        """
+    
+        tokenizer_class_name = transformer_tokenizer.__class__.__name__
+        if tokenizer_class_name in SLOW_TO_FAST_CONVERTERS and not from_tiktoken:
+            converter_class = SLOW_TO_FAST_CONVERTERS[tokenizer_class_name]
+            return converter_class(transformer_tokenizer).converted()
+    
+        else:
+            try:
+                logger.info("Converting from Tiktoken")
+                return TikTokenConverter(
+                    vocab_file=transformer_tokenizer.vocab_file,
+                    additional_special_tokens=transformer_tokenizer.additional_special_tokens,
+>               ).converted()
+                  ^^^^^^^^^^^
+
+.venv/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:1737: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:1631: in converted
+    tokenizer = self.tokenizer()
+                ^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:1624: in tokenizer
+    vocab_scores, merges = self.extract_vocab_merges_from_model(self.vocab_file)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:1600: in extract_vocab_merges_from_model
+    bpe_ranks = load_tiktoken_bpe(tiktoken_url)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/tiktoken/load.py:148: in load_tiktoken_bpe
+    contents = read_file_cached(tiktoken_bpe_file, expected_hash)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+blobpath = None, expected_hash = None
+
+    def read_file_cached(blobpath: str, expected_hash: str | None = None) -> bytes:
+        user_specified_cache = True
+        if "TIKTOKEN_CACHE_DIR" in os.environ:
+            cache_dir = os.environ["TIKTOKEN_CACHE_DIR"]
+        elif "DATA_GYM_CACHE_DIR" in os.environ:
+            cache_dir = os.environ["DATA_GYM_CACHE_DIR"]
+        else:
+            import tempfile
+    
+            cache_dir = os.path.join(tempfile.gettempdir(), "data-gym-cache")
+            user_specified_cache = False
+    
+        if cache_dir == "":
+            # disable caching
+            return read_file(blobpath)
+    
+>       cache_key = hashlib.sha1(blobpath.encode()).hexdigest()
+                                 ^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'encode'
+
+.venv/lib/python3.12/site-packages/tiktoken/load.py:48: AttributeError
+
+During handling of the above exception, another exception occurred:
+
+    def test_model():
+        model_path = None
+        try:
+            model_path = cache(TEST_MODEL_SPEC)
+            model = RerankModel(TEST_MODEL_SPEC, "mock", model_path)
+    
+            query = "A man is eating pasta."
+            # With all sentences in the corpus
+            corpus = [
+                "A man is eating food.",
+                "A man is eating a piece of bread.",
+                "The girl is carrying a baby.",
+                "A man is riding a horse.",
+                "A woman is playing violin.",
+                "Two men pushed carts through the woods.",
+                "A man is riding a white horse on an enclosed ground.",
+                "A monkey is playing drums.",
+                "A cheetah is running behind its prey.",
+            ]
+>           model.load()
+
+xinference/model/rerank/tests/test_rerank.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+xinference/model/rerank/core.py:197: in load
+    self._auto_detect_type(self._model_path) != "normal"
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+xinference/model/rerank/core.py:184: in _auto_detect_type
+    tokenizer = RerankModel._get_tokenizer(model_path)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+xinference/model/rerank/core.py:170: in _get_tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/transformers/models/auto/tokenization_auto.py:1013: in from_pretrained
+    return tokenizer_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2025: in from_pretrained
+    return cls._from_pretrained(
+.venv/lib/python3.12/site-packages/transformers/tokenization_utils_base.py:2278: in _from_pretrained
+    tokenizer = cls(*init_inputs, **init_kwargs)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/transformers/models/xlm_roberta/tokenization_xlm_roberta_fast.py:108: in __init__
+    super().__init__(
+.venv/lib/python3.12/site-packages/transformers/tokenization_utils_fast.py:139: in __init__
+    fast_tokenizer = convert_slow_tokenizer(self, from_tiktoken=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+transformer_tokenizer = <[AttributeError('XLMRobertaTokenizerFast has no attribute added_tokens_decoder') raised in repr()] XLMRobertaTokenizerFast object at 0x12f626f30>
+from_tiktoken = True
+
+    def convert_slow_tokenizer(transformer_tokenizer, from_tiktoken=False) -> Tokenizer:
+        """
+        Utilities to convert a slow tokenizer instance in a fast tokenizer instance.
+    
+        Args:
+            transformer_tokenizer ([`~tokenization_utils_base.PreTrainedTokenizer`]):
+                Instance of a slow tokenizer to convert in the backend tokenizer for
+                [`~tokenization_utils_base.PreTrainedTokenizerFast`].
+           from_tiktoken (bool, optional): Whether to use the `tiktoken` library to convert the tokenizer instead of sentencepiece.
+                Defaults to False.
+    
+        Return:
+            A instance of [`~tokenizers.Tokenizer`] to be used as the backend tokenizer of a
+            [`~tokenization_utils_base.PreTrainedTokenizerFast`]
+        """
+    
+        tokenizer_class_name = transformer_tokenizer.__class__.__name__
+        if tokenizer_class_name in SLOW_TO_FAST_CONVERTERS and not from_tiktoken:
+            converter_class = SLOW_TO_FAST_CONVERTERS[tokenizer_class_name]
+            return converter_class(transformer_tokenizer).converted()
+    
+        else:
+            try:
+                logger.info("Converting from Tiktoken")
+                return TikTokenConverter(
+                    vocab_file=transformer_tokenizer.vocab_file,
+                    additional_special_tokens=transformer_tokenizer.additional_special_tokens,
+                ).converted()
+            except Exception:
+>               raise ValueError(
+                    f"Converting from SentencePiece and Tiktoken failed, if a converter for SentencePiece is available, provide a model path "
+                    f"with a SentencePiece tokenizer.model file."
+                    f"Currently available slow->fast converters: {list(SLOW_TO_FAST_CONVERTERS.keys())}"
+                )
+E               ValueError: Converting from SentencePiece and Tiktoken failed, if a converter for SentencePiece is available, provide a model path with a SentencePiece tokenizer.model file.Currently available slow->fast converters: ['AlbertTokenizer', 'BartTokenizer', 'BarthezTokenizer', 'BertTokenizer', 'BigBirdTokenizer', 'BlenderbotTokenizer', 'CamembertTokenizer', 'CLIPTokenizer', 'CodeGenTokenizer', 'ConvBertTokenizer', 'DebertaTokenizer', 'DebertaV2Tokenizer', 'DistilBertTokenizer', 'DPRReaderTokenizer', 'DPRQuestionEncoderTokenizer', 'DPRContextEncoderTokenizer', 'ElectraTokenizer', 'FNetTokenizer', 'FunnelTokenizer', 'GPT2Tokenizer', 'HerbertTokenizer', 'LayoutLMTokenizer', 'LayoutLMv2Tokenizer', 'LayoutLMv3Tokenizer', 'LayoutXLMTokenizer', 'LongformerTokenizer', 'LEDTokenizer', 'LxmertTokenizer', 'MarkupLMTokenizer', 'MBartTokenizer', 'MBart50Tokenizer', 'MPNetTokenizer', 'MobileBertTokenizer', 'MvpTokenizer', 'NllbTokenizer', 'OpenAIGPTTokenizer', 'PegasusTokenizer', 'Qwen2Tokenizer', 'RealmTokenizer', 'ReformerTokenizer', 'RemBertTokenizer', 'RetriBertTokenizer', 'RobertaTokenizer', 'RoFormerTokenizer', 'SeamlessM4TTokenizer', 'SqueezeBertTokenizer', 'T5Tokenizer', 'UdopTokenizer', 'WhisperTokenizer', 'XLMRobertaTokenizer', 'XLNetTokenizer', 'SplinterTokenizer', 'XGLMTokenizer', 'LlamaTokenizer', 'CodeLlamaTokenizer', 'GemmaTokenizer', 'Phi3Tokenizer']
+
+.venv/lib/python3.12/site-packages/transformers/convert_slow_tokenizer.py:1739: ValueError
+----------------------------- Captured stderr call -----------------------------
+Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 87838.83it/s]
+=========================== short test summary info ============================
+FAILED xinference/model/rerank/tests/test_rerank.py::test_model - ValueError:...
+============================== 1 failed in 1.73s ===============================
+Finished running tests!
