@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from .core import RerankModel, RerankModelSpec
 
 SENTENCE_TRANSFORMER_CLASSES: List[Type["RerankModel"]] = []
-TRANSFORMERS_CLASSES: List[Type["RerankModel"]] = []
 FLAG_CLASSES: List[Type["RerankModel"]] = []
 VLLM_CLASSES: List[Type["RerankModel"]] = []
 

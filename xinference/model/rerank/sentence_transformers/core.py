@@ -21,49 +21,113 @@ import numpy as np
 import torch
 
 from ....types import Document, DocumentObj, Rerank, RerankTokens
-from ..core import RerankModel, RerankModelSpec, _ModelWrapper
+from ..core import RerankModel, RerankModelSpec
 from ..utils import preprocess_sentence
 
 logger = logging.getLogger(__name__)
 
 
-class SentenceTransformerRerankModel(RerankModel):
+class TransformersRerankModel(RerankModel):
     def load(self):
-        logger.info(
-            "Loading rerank model with sentence-transformers: %s", self._model_path
-        )
+        logger.info("Loading rerank model with transformers: %s", self._model_path)
 
         try:
-            import sentence_transformers
-            from sentence_transformers.cross_encoder import CrossEncoder
-
-            if sentence_transformers.__version__ < "3.1.0":
-                raise ValueError(
-                    "The sentence_transformers version must be greater than 3.1.0. "
-                    "Please upgrade your version via `pip install -U sentence_transformers` or refer to "
-                    "https://github.com/UKPLab/sentence-transformers"
-                )
+            from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError:
-            error_message = "Failed to import module 'sentence-transformers'"
+            error_message = "Failed to import module 'transformers'"
             installation_guide = [
-                "Please make sure 'sentence-transformers' is installed. ",
-                "You can install it by `pip install sentence-transformers`\n",
+                "Please make sure 'transformers' is installed. ",
+                "You can install it by `pip install transformers`\n",
             ]
             raise ImportError(f"{error_message}\n\n{''.join(installation_guide)}")
 
-        self._model = CrossEncoder(
-            self._model_path,
-            device=self._device,
-            trust_remote_code=True,
-            max_length=getattr(self._model_spec, "max_tokens"),
-            **self._model_config,
-        )
+        flash_attn_installed = importlib.util.find_spec("flash_attn") is not None
 
+        if "qwen3" in self._model_spec.model_name.lower():
+            self._load_qwen3_model(flash_attn_installed)
+        else:
+            self._load_general_model(flash_attn_installed)
+
+    def _load_qwen3_model(self, flash_attn_installed: bool):
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(self._model_path, padding_side="left")
+        enable_flash_attn = self._model_config.get("enable_flash_attn", True)
+        model_kwargs = {"device_map": "auto"}
+
+        if flash_attn_installed and enable_flash_attn:
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+            model_kwargs["torch_dtype"] = torch.float16
+
+        model_kwargs.update(self._model_config)
+        logger.debug("Loading qwen3 rerank with kwargs %s", model_kwargs)
+
+        model = AutoModelForCausalLM.from_pretrained(
+            self._model_path, **model_kwargs
+        ).eval()
+
+        max_length = getattr(self._model_spec, "max_tokens")
+
+        # 设置 qwen3 特定的处理逻辑
+        self._setup_qwen3_processing(tokenizer, model, max_length)
+
+    def _load_general_model(self, flash_attn_installed: bool):
+        # 通用的 transformers 模型加载逻辑
+        from transformers import AutoModel, AutoTokenizer
+
+        model_kwargs = {"device_map": "auto"}
         if self._use_fp16:
-            self._model.model.half()
+            model_kwargs["torch_dtype"] = torch.float16
 
-        # Wrap transformers model to record number of tokens
-        self._model.model = _ModelWrapper(self._model.model)
+        model_kwargs.update(self._model_config)
+
+        self._model = AutoModel.from_pretrained(self._model_path, **model_kwargs).eval()
+
+        self._tokenizer = AutoTokenizer.from_pretrained(self._model_path)
+
+    def _setup_qwen3_processing(self, tokenizer, model, max_length):
+        prefix = (
+            "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query "
+            'and the Instruct provided. Note that the answer can only be "yes" or "no".'
+            "<|im_end|>\n<|im_start|>user\n"
+        )
+        suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
+        suffix_tokens = tokenizer.encode(suffix, add_special_tokens=False)
+
+        def process_inputs(pairs):
+            inputs = tokenizer(
+                pairs,
+                padding=False,
+                truncation="longest_first",
+                return_attention_mask=False,
+                max_length=max_length - len(prefix_tokens) - len(suffix_tokens),
+            )
+            for i, ele in enumerate(inputs["input_ids"]):
+                inputs["input_ids"][i] = prefix_tokens + ele + suffix_tokens
+            inputs = tokenizer.pad(
+                inputs, padding=True, return_tensors="pt", max_length=max_length
+            )
+            for key in inputs:
+                inputs[key] = inputs[key].to(model.device)
+            return inputs
+
+        token_false_id = tokenizer.convert_tokens_to_ids("no")
+        token_true_id = tokenizer.convert_tokens_to_ids("yes")
+
+        def compute_logits(inputs, **kwargs):
+            batch_scores = model(**inputs).logits[:, -1, :]
+            true_vector = batch_scores[:, token_true_id]
+            false_vector = batch_scores[:, token_false_id]
+            batch_scores = torch.stack([false_vector, true_vector], dim=1)
+            batch_scores = torch.nn.functional.log_softmax(batch_scores, dim=1)
+            scores = batch_scores[:, 1].exp().tolist()
+            return scores
+
+        self._model = model
+        self._tokenizer = tokenizer
+        self.process_inputs = process_inputs
+        self.compute_logits = compute_logits
 
     def rerank(
         self,
@@ -81,24 +145,10 @@ class SentenceTransformerRerankModel(RerankModel):
 
         logger.info("Rerank with kwargs: %s, model: %s", kwargs, self._model)
 
-        pre_query = preprocess_sentence(
-            query, kwargs.get("instruction", None), self._model_spec.model_name
-        )
-        sentence_combinations = [[pre_query, doc] for doc in documents]
-
-        # reset n tokens
-        self._model.model.n_tokens = 0
-
-        logger.debug("Passing processed sentences: %s", sentence_combinations)
-        similarity_scores = self._model.predict(
-            sentence_combinations,
-            convert_to_numpy=False,
-            convert_to_tensor=True,
-            **kwargs,
-        ).cpu()
-
-        if similarity_scores.dtype == torch.bfloat16:
-            similarity_scores = similarity_scores.float()
+        if "qwen3" in self._model_spec.model_name.lower():
+            similarity_scores = self._rerank_qwen3(documents, query, **kwargs)
+        else:
+            similarity_scores = self._rerank_general(documents, query, **kwargs)
 
         sim_scores_argsort = list(reversed(np.argsort(similarity_scores)))
         if top_n is not None:
@@ -124,7 +174,8 @@ class SentenceTransformerRerankModel(RerankModel):
             ]
 
         if return_len:
-            input_len = self._model.model.n_tokens
+            # 简化的 token 计算
+            input_len = sum(len(self._tokenizer.encode(doc)) for doc in documents)
             output_len = input_len
         else:
             input_len = output_len = 0
@@ -145,11 +196,55 @@ class SentenceTransformerRerankModel(RerankModel):
 
         return Rerank(id=str(uuid.uuid1()), results=docs, meta=metadata)
 
+    def _rerank_qwen3(self, documents: List[str], query: str, **kwargs):
+        def format_instruction(instruction, query, doc):
+            if instruction is None:
+                instruction = "Given a web search query, retrieve relevant passages that answer the query"
+            output = (
+                "<Instruct>: {instruction}\n<Query>: {query}\n<Document>: {doc}".format(
+                    instruction=instruction, query=query, doc=doc
+                )
+            )
+            return output
+
+        pairs = [
+            format_instruction(kwargs.get("instruction", None), query, doc)
+            for doc in documents
+        ]
+        inputs = self.process_inputs(pairs)
+        similarity_scores = self.compute_logits(inputs)
+        return similarity_scores
+
+    def _rerank_general(self, documents: List[str], query: str, **kwargs):
+        # 通用的重排序逻辑
+        pre_query = preprocess_sentence(
+            query, kwargs.get("instruction", None), self._model_spec.model_name
+        )
+
+        scores = []
+        for doc in documents:
+            # 简化的相似度计算
+            inputs = self._tokenizer(
+                [pre_query, doc], return_tensors="pt", padding=True, truncation=True
+            )
+
+            with torch.no_grad():
+                outputs = self._model(**inputs)
+                # 简化的评分逻辑
+                score = torch.cosine_similarity(
+                    outputs.last_hidden_state[0].mean(dim=0),
+                    outputs.last_hidden_state[1].mean(dim=0),
+                    dim=0,
+                ).item()
+                scores.append(score)
+
+        return scores
+
     @classmethod
     def check_lib(cls) -> bool:
-        return importlib.util.find_spec("sentence_transformers") is not None
+        return importlib.util.find_spec("transformers") is not None
 
     @classmethod
     def match_json(cls, model_spec: RerankModelSpec) -> bool:
-        # sentence-transformers 支持 normal 类型的模型
-        return model_spec.type == "normal"
+        # transformers 引擎支持所有类型的模型
+        return True

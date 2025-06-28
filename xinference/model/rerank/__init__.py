@@ -95,9 +95,10 @@ from .flag.core import FlagRerankModel
 # 注册引擎
 from .rerank_family import (
     SENTENCE_TRANSFORMER_CLASSES,
-    TRANSFORMERS_CLASSES,
     FLAG_CLASSES,
     RERANK_ENGINES,
+    BUILTIN_RERANK_MODELS,
+    MODELSCOPE_RERANK_MODELS,
 )
 
 SENTENCE_TRANSFORMER_CLASSES.append(SentenceTransformerRerankModel)

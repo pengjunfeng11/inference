@@ -188,8 +188,8 @@ class RerankModel(abc.ABC):
 
     @abstractmethod
     def load(self):
-        pass
         logger.info("Loading rerank model: %s", self._model_path)
+        pass
         flash_attn_installed = importlib.util.find_spec("flash_attn") is not None
         if (
             self._auto_detect_type(self._model_path) != "normal"
