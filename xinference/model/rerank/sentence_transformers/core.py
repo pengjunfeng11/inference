@@ -27,7 +27,7 @@ from ..utils import preprocess_sentence
 logger = logging.getLogger(__name__)
 
 
-class TransformersRerankModel(RerankModel):
+class SentenceTransformersRerankModel(RerankModel):
     def load(self):
         logger.info("Loading rerank model with transformers: %s", self._model_path)
 

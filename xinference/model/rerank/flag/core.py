@@ -27,7 +27,7 @@ from ..utils import preprocess_sentence
 logger = logging.getLogger(__name__)
 
 
-class TransformersRerankModel(RerankModel):
+class FlagRerankModel(RerankModel):
     def load(self):
 
         try:

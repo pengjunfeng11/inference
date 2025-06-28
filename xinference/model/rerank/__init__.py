@@ -88,22 +88,23 @@ def load_model_family_from_json(json_filename, target_families):
 
 
 # 导入各个引擎
-from .sentence_transformers.core import SentenceTransformerRerankModel
-from .transformers.core import TransformersRerankModel
+from .sentence_transformers.core import SentenceTransformersRerankModel
 from .flag.core import FlagRerankModel
+from .vllm.core import VLLMRerankModel
 
 # 注册引擎
 from .rerank_family import (
     SENTENCE_TRANSFORMER_CLASSES,
     FLAG_CLASSES,
+    VLLM_CLASSES,
     RERANK_ENGINES,
     BUILTIN_RERANK_MODELS,
     MODELSCOPE_RERANK_MODELS,
 )
 
-SENTENCE_TRANSFORMER_CLASSES.append(SentenceTransformerRerankModel)
-TRANSFORMERS_CLASSES.append(TransformersRerankModel)
+SENTENCE_TRANSFORMER_CLASSES.append(SentenceTransformersRerankModel)
 FLAG_CLASSES.append(FlagRerankModel)
+VLLM_CLASSES.append(VLLMRerankModel)
 
 
 def generate_engine_config_by_model_name(model_spec):
@@ -125,22 +126,22 @@ def generate_engine_config_by_model_name(model_spec):
                 }
             )
 
-    for engine_cls in TRANSFORMERS_CLASSES:
+    for engine_cls in FLAG_CLASSES:
         if engine_cls.match(model_spec):
-            if "transformers" not in RERANK_ENGINES[model_name]:
-                RERANK_ENGINES[model_name]["transformers"] = []
-            RERANK_ENGINES[model_name]["transformers"].append(
+            if "flag" not in RERANK_ENGINES[model_name]:
+                RERANK_ENGINES[model_name]["flag"] = []
+            RERANK_ENGINES[model_name]["flag"].append(
                 {
                     "model_name": model_name,
                     "rerank_class": engine_cls,
                 }
             )
 
-    for engine_cls in FLAG_CLASSES:
+    for engine_cls in VLLM_CLASSES:
         if engine_cls.match(model_spec):
-            if "flag" not in RERANK_ENGINES[model_name]:
-                RERANK_ENGINES[model_name]["flag"] = []
-            RERANK_ENGINES[model_name]["flag"].append(
+            if "vllm" not in RERANK_ENGINES[model_name]:
+                RERANK_ENGINES[model_name]["vllm"] = []
+            RERANK_ENGINES[model_name]["vllm"].append(
                 {
                     "model_name": model_name,
                     "rerank_class": engine_cls,
